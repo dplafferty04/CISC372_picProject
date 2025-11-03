@@ -3,6 +3,7 @@
 #include <time.h>
 #include <string.h>
 #include "image.h"
+#include <pthread.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -20,6 +21,31 @@ Matrix algorithms[]={
     {{-2,-1,0},{-1,1,1},{0,1,2}},
     {{0,0,0},{0,1,0},{0,0,0}}
 };
+
+
+//PARALLEL PART
+
+typedef struct {
+    Image* srcImage;
+    Image* destImage;
+    double (*algorithm)[3];
+    int row_start;
+    int row_end;
+} ThreadArgs;
+
+static void* convolute_worker(void* arg){
+    ThreadArgs* a=(ThreadArgs*)arg;
+    int row,pix,bit;
+    for (row=a->row_start;row<a->row_end;row++){
+        for (pix=0;pix<a->srcImage->width;pix++){
+            for (bit=0;bit<a->srcImage->bpp;bit++){
+                a->destImage->data[Index(pix,row,a->srcImage->width,bit,a->srcImage->bpp)]
+                    = getPixelValue(a->srcImage,pix,row,bit,a->algorithm);
+            }
+        }
+    }
+    return NULL;
+}
 
 
 //getPixelValue - Computes the value of a specific pixel on a specific channel using the selected convolution kernel
@@ -57,14 +83,25 @@ uint8_t getPixelValue(Image* srcImage,int x,int y,int bit,Matrix algorithm){
 //            algorithm: The kernel matrix to use for the convolution
 //Returns: Nothing
 void convolute(Image* srcImage,Image* destImage,Matrix algorithm){
-    int row,pix,bit,span;
-    span=srcImage->bpp*srcImage->bpp;
-    for (row=0;row<srcImage->height;row++){
-        for (pix=0;pix<srcImage->width;pix++){
-            for (bit=0;bit<srcImage->bpp;bit++){
-                destImage->data[Index(pix,row,srcImage->width,bit,srcImage->bpp)]=getPixelValue(srcImage,pix,row,bit,algorithm);
-            }
-        }
+    int nthreads=4;
+    if (srcImage->height<nthreads) nthreads=srcImage->height;
+    pthread_t tids[nthreads];
+    ThreadArgs args[nthreads];
+    int base=srcImage->height/nthreads;
+    int rem=srcImage->height % nthreads;
+    int start=0;
+    for (int i=0;i<nthreads;i++){
+        int rows=base+(i<rem?1:0);
+        args[i].srcImage=srcImage;
+        args[i].destImage=destImage;
+        args[i].algorithm=algorithm;
+        args[i].row_start=start;
+        args[i].row_end=start+rows;
+        start+=rows;
+        pthread_create(&tids[i],NULL,convolute_worker,&args[i]);
+    }
+    for (int i=0;i<nthreads;i++){
+        pthread_join(tids[i],NULL);
     }
 }
 
