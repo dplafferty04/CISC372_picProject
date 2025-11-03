@@ -85,25 +85,33 @@ uint8_t getPixelValue(Image* srcImage,int x,int y,int bit,Matrix algorithm){
 void convolute(Image* srcImage,Image* destImage,Matrix algorithm){
     int nthreads=4;
     if (srcImage->height<nthreads) nthreads=srcImage->height;
-    pthread_t tids[nthreads];
-    ThreadArgs args[nthreads];
-    int base=srcImage->height/nthreads;
-    int rem=srcImage->height % nthreads;
-    int start=0;
-    for (int i=0;i<nthreads;i++){
-        int rows=base+(i<rem?1:0);
-        args[i].srcImage=srcImage;
-        args[i].destImage=destImage;
-        args[i].algorithm=algorithm;
-        args[i].row_start=start;
-        args[i].row_end=start+rows;
-        start+=rows;
-        pthread_create(&tids[i],NULL,convolute_worker,&args[i]);
+
+    pthread_t *tids = (pthread_t*)malloc(sizeof(pthread_t)*nthreads);
+    ThreadArgs *args = (ThreadArgs*)malloc(sizeof(ThreadArgs)*nthreads);
+
+    int base = srcImage->height / nthreads;
+    int rem  = srcImage->height % nthreads;
+    int start = 0;
+    int i;
+
+    for (i=0; i<nthreads; i++){
+        int rows = base + (i < rem ? 1 : 0);
+        args[i].srcImage = srcImage;
+        args[i].destImage = destImage;
+        args[i].algorithm = algorithm;   /* ThreadArgs field type should be: double (*algorithm)[3] */
+        args[i].row_start = start;
+        args[i].row_end   = start + rows;
+        start += rows;
+        pthread_create(&tids[i], NULL, convolute_worker, &args[i]);
     }
-    for (int i=0;i<nthreads;i++){
-        pthread_join(tids[i],NULL);
+    for (i=0; i<nthreads; i++){
+        pthread_join(tids[i], NULL);
     }
+
+    free(tids);
+    free(args);
 }
+
 
 //Usage: Prints usage information for the program
 //Returns: -1
